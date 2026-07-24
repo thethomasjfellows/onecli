@@ -1,0 +1,170 @@
+name: Publish qFido image
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "New immutable release label, for example qfido-20260724-1"
+        required: true
+        type: string
+
+concurrency:
+  group: qfido-image-${{ inputs.image_tag }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: thethomasjfellows/onecli
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    environment: production
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            suffix: amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            suffix: arm64
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Validate release label
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          if [[ ! "$IMAGE_TAG" =~ ^qfido-[0-9]{8}-[0-9]+$ ]]; then
+            echo "Use qfido-YYYYMMDD-N, for example qfido-20260724-1." >&2
+            exit 1
+          fi
+
+      - name: Checkout production source
+        uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Reject an existing release label
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          if docker buildx imagetools inspect "${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}" >/dev/null 2>&1; then
+            echo "Refusing to replace existing image tag ${IMAGE_TAG}." >&2
+            exit 1
+          fi
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            APP_VERSION=qfido-${{ github.sha }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=qfido-${{ matrix.suffix }}
+          cache-to: type=gha,mode=max,scope=qfido-${{ matrix.suffix }}
+
+      - name: Export platform digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+
+      - name: Upload platform digest
+        uses: actions/upload-artifact@v7
+        with:
+          name: qfido-digest-${{ matrix.suffix }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish immutable manifest
+    environment: production
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Download platform digests
+        uses: actions/download-artifact@v8
+        with:
+          path: /tmp/digests
+          pattern: qfido-digest-*
+          merge-multiple: true
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Create multi-architecture manifest
+        working-directory: /tmp/digests
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          sources=()
+          for digest_file in *; do
+            sources+=("${REGISTRY}/${IMAGE_NAME}@sha256:${digest_file}")
+          done
+          docker buildx imagetools create \
+            -t "${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}" \
+            "${sources[@]}"
+
+      - name: Record immutable image digest
+        id: image
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          digest="$(docker buildx imagetools inspect "${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+          test -n "$digest"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          {
+            echo "## qFido OneCLI image"
+            echo
+            echo "\`${REGISTRY}/${IMAGE_NAME}@${digest}\`"
+            echo
+            echo "Source commit: \`${GITHUB_SHA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save release evidence
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          {
+            echo "source_commit=${GITHUB_SHA}"
+            echo "image=${REGISTRY}/${IMAGE_NAME}@${IMAGE_DIGEST}"
+            echo "release_label=${IMAGE_TAG}"
+          } > qfido-image.txt
+
+      - name: Upload release evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: qfido-image-${{ inputs.image_tag }}
+          path: qfido-image.txt
+          if-no-files-found: error
+          retention-days: 90

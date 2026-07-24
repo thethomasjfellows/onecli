@@ -1,6 +1,13 @@
 # OneCLI Local qFido Setup
 
-This folder is a local clone of `https://github.com/onecli/onecli`.
+This folder is the qFido production checkout of Thomas Fellows' OneCLI fork:
+
+- Fork: https://github.com/thethomasjfellows/onecli
+- Upstream: https://github.com/onecli/onecli
+- Production branch: `qfido/production`
+- Production runbook: [`docs/operations/qfido-production-runbook.md`](docs/operations/qfido-production-runbook.md)
+
+The fork keeps qFido's production packaging and operating material separate from clean upstream contributions. Upstream updates are reviewed and merged into `qfido/production`; they do not replace qFido-owned commits.
 
 Use OneCLI according to the official docs:
 
@@ -18,6 +25,8 @@ Use OneCLI according to the official docs:
 - Local agent identifier: `qfido-operations`
 
 Postgres uses host port `15432` because `5432` was already in use on this Mac.
+
+Production uses an immutable image digest through `ONECLI_IMAGE`. Do not deploy `latest`; follow the production runbook for image publication, database protection, deployment, and rollback.
 
 ## Start, Stop, And Inspect
 
