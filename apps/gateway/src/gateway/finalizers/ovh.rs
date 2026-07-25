@@ -102,6 +102,11 @@ pub(crate) fn sign_request(
     Ok(())
 }
 
+fn api_url(host: &str, path: &str) -> String {
+    let host = host.strip_suffix(":443").unwrap_or(host);
+    format!("https://{host}{path}")
+}
+
 /// Sign an outgoing OVHcloud U.S. request.
 pub(crate) async fn finalize_request(
     host: &str,
@@ -122,7 +127,7 @@ pub(crate) async fn finalize_request(
 
     let body_bytes = buffer_body(body).await?;
     let timestamp = fetch_timestamp(hostname).await?;
-    let url = format!("https://{host}{path}");
+    let url = api_url(host, path);
     sign_request(method, &url, headers, &body_bytes, timestamp, &creds)?;
 
     tracing::info!(method = %method, host = %host, path = %path, "OVHcloud request signed");
@@ -199,6 +204,14 @@ mod tests {
         assert_eq!(
             headers["x-ovh-signature"],
             "$1$ecfad05202f9e11e2e0e6bb38cd7c59c299176df"
+        );
+    }
+
+    #[test]
+    fn api_url_omits_the_default_https_port() {
+        assert_eq!(
+            api_url("api.us.ovhcloud.com:443", "/1.0/me"),
+            "https://api.us.ovhcloud.com/1.0/me"
         );
     }
 
