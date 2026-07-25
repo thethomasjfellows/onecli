@@ -2365,6 +2365,7 @@ dependencies = [
  "rustls-pemfile",
  "serde",
  "serde_json",
+ "sha1",
  "sqlx",
  "tempfile",
  "time",

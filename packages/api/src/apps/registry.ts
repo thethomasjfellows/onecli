@@ -39,9 +39,11 @@ import { monday } from "./monday";
 import { vercel } from "./vercel";
 import { jfrogArtifactory } from "./jfrog-artifactory";
 import { airbyte } from "./airbyte";
+import { ovh } from "./ovh";
 
 const staticApps: AppDefinition[] = [
   airbyte,
+  ovh,
   gmail,
   github,
   githubApp,

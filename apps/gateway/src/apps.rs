@@ -29,6 +29,8 @@ pub(crate) enum AuthStrategy {
 pub(crate) enum RequestFinalizer {
     /// AWS Signature Version 4 — signs the request with IAM credentials.
     AwsSigV4,
+    /// OVHcloud API signature — signs with application and consumer credentials.
+    Ovh,
     /// AWS STS AssumeRole — resolves temporary credentials, then signs with SigV4.
     #[cfg(edition_cloud)]
     AwsAssumeRole,
@@ -903,6 +905,37 @@ static APP_PROVIDERS: &[AppProvider] = &[
         credential_params: &[],
         host_rewrite: None,
         finalizer: Some(RequestFinalizer::AwsSigV4),
+        body_transform: None,
+    },
+    AppProvider {
+        provider: "ovh",
+        display_name: "OVHcloud US",
+        host_rules: &[HostRule {
+            pattern: HostPattern::Exact("api.us.ovhcloud.com"),
+            path_prefix: None,
+            strategy: AuthStrategy::None,
+            intercept: false,
+            credential_host_field: None,
+        }],
+        refresh: None,
+        metadata_headers: &[],
+        credential_headers: &[
+            CredentialHeader {
+                credential_field: "applicationKey",
+                header_name: "x-onecli-ovh-application-key",
+            },
+            CredentialHeader {
+                credential_field: "applicationSecret",
+                header_name: "x-onecli-ovh-application-secret",
+            },
+            CredentialHeader {
+                credential_field: "consumerKey",
+                header_name: "x-onecli-ovh-consumer-key",
+            },
+        ],
+        credential_params: &[],
+        host_rewrite: None,
+        finalizer: Some(RequestFinalizer::Ovh),
         body_transform: None,
     },
     AppProvider {
@@ -2746,6 +2779,23 @@ mod tests {
             finalizer_for_provider("aws"),
             Some(RequestFinalizer::AwsSigV4)
         );
+    }
+
+    #[test]
+    fn ovh_credential_headers_and_finalizer_are_defined() {
+        let headers = credential_headers("ovh");
+        assert_eq!(headers.len(), 3);
+        assert_eq!(headers[0].credential_field, "applicationKey");
+        assert_eq!(headers[0].header_name, "x-onecli-ovh-application-key");
+        assert_eq!(headers[1].credential_field, "applicationSecret");
+        assert_eq!(headers[1].header_name, "x-onecli-ovh-application-secret");
+        assert_eq!(headers[2].credential_field, "consumerKey");
+        assert_eq!(headers[2].header_name, "x-onecli-ovh-consumer-key");
+        assert_eq!(
+            provider_for_host("api.us.ovhcloud.com"),
+            Some(("ovh", "OVHcloud US"))
+        );
+        assert_eq!(finalizer_for_provider("ovh"), Some(RequestFinalizer::Ovh));
     }
 
     #[test]

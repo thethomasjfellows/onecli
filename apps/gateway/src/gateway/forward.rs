@@ -678,6 +678,16 @@ pub(crate) async fn forward_request(
             )
             .await?
         }
+        Some(crate::apps::RequestFinalizer::Ovh) => {
+            super::finalizers::ovh::finalize_request(
+                host,
+                method.as_str(),
+                &upstream_path,
+                &mut headers,
+                forward_body,
+            )
+            .await?
+        }
         #[cfg(edition_cloud)]
         Some(crate::apps::RequestFinalizer::AwsAssumeRole) => {
             super::finalizers::aws_sts::finalize_request(
